@@ -121,10 +121,12 @@ func (k *JWTMiddleware) getSecretFromURL(url string, kid string, keyType string)
 }
 
 func (k *JWTMiddleware) getIdentityFomToken(token *jwt.Token) (string, bool) {
+	log.Info("getIdentityFomToken")
 	// Try using a kid or sub header
 	idFound := false
 	var tykId string
 	if token.Header["kid"] != nil {
+		log.Info("yay - kid found")
 		tykId = token.Header["kid"].(string)
 		idFound = true
 	}
@@ -141,25 +143,40 @@ func (k *JWTMiddleware) getIdentityFomToken(token *jwt.Token) (string, bool) {
 }
 
 func (k *JWTMiddleware) getSecret(token *jwt.Token) ([]byte, error) {
+	log.Info("calling get secret")
+	log.Info(token.Valid)
 	thisConfig := k.TykMiddleware.Spec.APIDefinition
+	log.Info(thisConfig)
 	// Check for central JWT source
 	if thisConfig.JWTSource != "" {
+		log.Info("jwt source isn't blank")
+		log.Info(thisConfig.JWTSource)
 
 		// Is it a URL?
 		if strings.HasPrefix(strings.ToLower(thisConfig.JWTSource), "http://") || strings.HasPrefix(strings.ToLower(thisConfig.JWTSource), "https://") {
+			log.Info("OMG its a url")
 			secret, urlErr := k.getSecretFromURL(thisConfig.JWTSource, token.Header["kid"].(string), k.TykMiddleware.Spec.JWTSigningMethod)
+			log.Info("the url secert is:")
+			log.Info(string(secret))
 			if urlErr != nil {
 				return nil, urlErr
 			}
+			log.Info("yay secret valid")
 
 			return secret, nil
 		}
+		log.Info("decoding stuff")
 
 		// If not, return the actual value
+		// mystring := "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUFwdHNmbE92WDBPS0R3MlNabVRLbQpsMGJSS0tSQTZwNGs2dVd5b2UxRHVQaTJ1WlQ5UlNuRmJwbldneUM2eUNveDQ0SUtBZjg2bEh1eWJzT1IwQ01LClBYU3htbGNVajMrTUVJZVB2REtjdWhGVW1JM1o2dnc2Ymd3czRXdFBNZ2REZ05FS1FoN2hERXExeW1jK1Q1akwKMGVGbEd2akVpQ3ZRV3d2QjV1VXhuMkl1MG5YNGkra1RmWk5RcHdBbHhkS3hMd2VQTGMyTDIyVUVJVnhGdDVMSApzUEJzTWI1bVNsdEFBUmdiR2tvemxQTmE1WkpnRVJ4cUJNZkpneGh6b1JCWlFDaGdmTVR1Zm0rVWY2YStaNHVwCkRodGtLMTlpbXYzbmJBMGtwNlhGUkpZeUk0QUpwN3QzOHJzTGVWRGxHbk1FRHBkQUtQak0rY0JDMEVCR1pDZG8KeFFJREFRQUIKLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg=="
 		decodedCert, decErr := b64.StdEncoding.DecodeString(thisConfig.JWTSource)
+		// decodedCert, decErr := b64.StdEncoding.DecodeString(mystring)
 		if decErr != nil {
 			return nil, decErr
 		}
+		log.Info("yay decoded")
+		log.Info(string(decodedCert))
+		log.Info("leaving method")
 		return decodedCert, nil
 	}
 
@@ -172,9 +189,9 @@ func (k *JWTMiddleware) getSecret(token *jwt.Token) ([]byte, error) {
 
 	var thisSessionState SessionState
 	var rawKeyExists bool
-	
+
 	// Couldn't b64 decode the kid, so lets try it raw
-	log.Debug("Getting key: ", tykId)
+	log.Info("Getting key: ", tykId)
 	thisSessionState, rawKeyExists = k.TykMiddleware.CheckSessionAndIdentityForValidKey(tykId)
 	if !rawKeyExists {
 		log.Info("Not found!")
@@ -225,12 +242,14 @@ func (k *JWTMiddleware) ProcessRequest(w http.ResponseWriter, r *http.Request, c
 
 	// Verify the token
 	token, err := jwt.Parse(rawJWT, func(token *jwt.Token) (interface{}, error) {
+		log.Info("parsing the jwt")
 		// Don't forget to validate the alg is what you expect:
 		if k.TykMiddleware.Spec.JWTSigningMethod == "hmac" {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
 			}
 		} else if k.TykMiddleware.Spec.JWTSigningMethod == "rsa" {
+			log.Info("RSA HERE")
 			if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 				return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
 			}
@@ -249,6 +268,8 @@ func (k *JWTMiddleware) ProcessRequest(w http.ResponseWriter, r *http.Request, c
 		var secretErr error
 
 		val, secretErr = k.getSecret(token)
+		log.Info("response from getSecret:")
+		log.Info(string(val))
 		if secretErr != nil {
 			log.Error("Couldn't get token: ", secretErr)
 		}
@@ -256,12 +277,19 @@ func (k *JWTMiddleware) ProcessRequest(w http.ResponseWriter, r *http.Request, c
 		return val, secretErr
 	})
 
+	log.Info("token now parsed and it's: ")
+	log.Info(token)
+	log.Info(token.Claims)
+	log.Info("is token valid?")
+	log.Info(token.Valid)
+
 	if err == nil && token.Valid {
+		log.Info("No errors and valid token")
 		// all good to go
 
 		// Is this just a validation?
 		if k.TykMiddleware.Spec.APIDefinition.JWTSource != "" {
-			log.Debug("JWT authority is centralised")
+			log.Info("JWT authority is centralised")
 			// Generate a virtual token
 			var baseFound bool
 			var baseFieldData string
